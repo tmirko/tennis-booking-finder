@@ -1,0 +1,30 @@
+[project]
+name = "tennis-booking-finder"
+requires-python = ">=3.12,<3.13"
+version = "0.1.0"
+dependencies = [
+	"requests>=2.32,<3",
+	"beautifulsoup4>=4.12,<5",
+]
+
+[project.scripts]
+tennis-slots = "tennis_booking_finder.cli:main"
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"] # if executed on linux
+
+[tool.pixi.environments]
+default = {features = ["runtime"], solve-group = "default"}
+dev = {features = ["runtime", "dev"], solve-group = "default"}
+
+[tool.pixi.feature.runtime.dependencies]
+python = "3.12.*"
+requests = "*"
+beautifulsoup4 = "*"
+
+[tool.pixi.feature.dev.dependencies]
+pytest = "*"
+
+[tool.pixi.feature.runtime.tasks]
+run = "python -m src.tennis_booking_finder.cli --pages 1 --format json --timezone Europe/Vienna --timeout 10"
