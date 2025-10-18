@@ -106,8 +106,8 @@ def build_csv(rows: list[dict[str, Any]]) -> str:
 
 
 def main() -> None:
-    st.title("Tennis Booking Finder")
-    st.caption("Live availability fetched directly from LTM Tennis.")
+    st.title("Vienna Court Finder")
+    st.caption("Live availability fetched directly from court providers (LTM Tennis).")
 
     with st.sidebar:
         st.header("Options")
