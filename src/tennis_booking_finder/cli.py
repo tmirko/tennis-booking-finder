@@ -391,6 +391,57 @@ def format_slots_text(slots: Sequence[Slot]) -> str:
     return "\n".join(lines)
 
 
+def format_slots_structured(slots: Sequence[Slot]) -> str:
+    """Render slots as a fixed-width table of key attributes."""
+
+    if not slots:
+        return "No available slots found."
+
+    headers = (
+        "source_url",
+        "calendar_label",
+        "court_label",
+        "day",
+        "start",
+        "duration_minutes",
+        "price",
+    )
+
+    rows: list[tuple[str, ...]] = []
+    for slot in slots:
+        day = slot.start.strftime("%Y-%m-%d")
+        start = slot.start.strftime("%H:%M")
+        price = (
+            f"{slot.price_eur:.2f}"
+            if slot.price_eur is not None
+            else "n/a"
+        )
+        rows.append(
+            (
+                slot.source_url,
+                slot.calendar_label,
+                slot.court_label,
+                day,
+                start,
+                str(slot.duration_minutes),
+                price,
+            )
+        )
+
+    widths = [len(header) for header in headers]
+    for row in rows:
+        widths = [max(width, len(value)) for width, value in zip(widths, row)]
+
+    def render_row(values: Sequence[str]) -> str:
+        return " | ".join(value.ljust(width) for value, width in zip(values, widths))
+
+    separator = "-+-".join("-" * width for width in widths)
+
+    lines = [render_row(headers), separator]
+    lines.extend(render_row(row) for row in rows)
+    return "\n".join(lines)
+
+
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     """Construct the CLI argument parser and parse inputs."""
 
@@ -416,7 +467,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--format",
         "-f",
-        choices=("text", "json"),
+        choices=("text", "json", "structured"),
         default="text",
         help="Output format (default: text).",
     )
@@ -483,6 +534,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.format == "json":
         print(json.dumps([slot.to_dict() for slot in slots], indent=2))
+    elif args.format == "structured":
+        print(format_slots_structured(slots))
     else:
         print(format_slots_text(slots))
 

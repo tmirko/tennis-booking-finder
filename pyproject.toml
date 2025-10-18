@@ -27,4 +27,5 @@ beautifulsoup4 = ">=4.12,<5"
 pytest = ">=7.0,<8.0"
 
 [tool.pixi.feature.runtime.tasks]
-run = "python -m src.tennis_booking_finder.cli --pages 1 --format json --timezone Europe/Vienna --timeout 10"
+run = "python -m src.tennis_booking_finder.cli --pages 1 --format structured --timezone Europe/Vienna --timeout 10"
+run_json = "python -m src.tennis_booking_finder.cli --pages 1 --format json --timezone Europe/Vienna --timeout 10"
