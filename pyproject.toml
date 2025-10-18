@@ -5,6 +5,8 @@ version = "0.1.0"
 dependencies = [
 	"requests>=2.32,<3",
 	"beautifulsoup4>=4.12,<5",
+	"streamlit>=1.38,<2",
+	"tzdata>=2024.1",
 ]
 
 [project.scripts]
@@ -22,6 +24,8 @@ dev = {features = ["runtime", "dev"], solve-group = "default"}
 python = "3.12.*"
 requests = ">=2.32,<3"
 beautifulsoup4 = ">=4.12,<5"
+streamlit = ">=1.38,<2"
+tzdata = ">=2024.1"
 
 [tool.pixi.feature.dev.dependencies]
 pytest = ">=7.0,<8.0"
@@ -29,3 +33,4 @@ pytest = ">=7.0,<8.0"
 [tool.pixi.feature.runtime.tasks]
 run = "python -m src.tennis_booking_finder.cli --pages 1 --format structured --timezone Europe/Vienna --timeout 10"
 run_json = "python -m src.tennis_booking_finder.cli --pages 1 --format json --timezone Europe/Vienna --timeout 10"
+serve = "streamlit run app.py"

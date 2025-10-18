@@ -1,2 +1,4 @@
 requests>=2.32,<3
 beautifulsoup4>=4.12,<5
+streamlit>=1.38,<2
+tzdata>=2024.1
