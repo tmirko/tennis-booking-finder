@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -87,6 +88,30 @@ def parse_price_map(soup: BeautifulSoup) -> dict[str, float]:
             logging.debug("Skipping malformed price value: %s", text)
     logging.debug("Parsed price codes: %s", prices)
     return prices
+
+
+PRICE_COLOR_PATTERN = re.compile(
+    r"\.price(?P<code>\d+):after[^}]*background:\s*(?P<color>#[0-9a-fA-F]{3,6})",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def parse_price_colors(soup: BeautifulSoup) -> dict[str, str]:
+    """Extract the colour used for each price class from embedded styles."""
+
+    css_chunks = [style.get_text("\n", strip=False) for style in soup.find_all("style")]
+    if not css_chunks:
+        return {}
+
+    css_text = "\n".join(css_chunks)
+    colors: dict[str, str] = {}
+    for match in PRICE_COLOR_PATTERN.finditer(css_text):
+        code = f"price{match.group('code')}"
+        color = match.group("color").lower()
+        colors[code] = color
+    if colors:
+        logging.debug("Parsed price colours: %s", colors)
+    return colors
 
 
 def parse_available_slots(
@@ -260,6 +285,8 @@ def iter_pages(
     """Iterate through calendar pages for each configured seed URL."""
 
     seen_urls: set[str] = set()
+    price_lookup: dict[str, float] = {}
+    color_price_by_seed: dict[str, dict[str, float]] = {}
 
     for seed in SEED_URLS:
         url = seed
@@ -281,12 +308,32 @@ def iter_pages(
             soup = BeautifulSoup(html, "html.parser")
             page_title = soup.select_one("h1")
             calendar_label = page_title.get_text(" ", strip=True) if page_title else "Tennis Booking"
+            page_colors = parse_price_colors(soup)
             price_map = parse_price_map(soup)
+            if price_map:
+                price_lookup.update(price_map)
+
+            color_price_map = color_price_by_seed.setdefault(seed, {})
+            if page_colors:
+                page_color_price: dict[str, float] = {}
+                for code, price_value in price_map.items():
+                    color = page_colors.get(code)
+                    if color and color not in page_color_price:
+                        page_color_price[color] = price_value
+                color_price_map.update(page_color_price)
+
+                for code, color in page_colors.items():
+                    if code in price_lookup:
+                        continue
+                    if color in page_color_price:
+                        price_lookup[code] = page_color_price[color]
+                    elif color in color_price_map:
+                        price_lookup[code] = color_price_map[color]
 
             for calendar in soup.select("div.calendar"):
                 yield from parse_available_slots(
                     calendar,
-                    price_map=price_map,
+                    price_map=price_lookup,
                     timezone=timezone,
                     calendar_label=calendar_label,
                     source_url=resolved,
