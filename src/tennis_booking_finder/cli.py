@@ -14,6 +14,10 @@ from bs4 import BeautifulSoup, Tag
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 BASE_URL = "https://ltm.tennisplatz.info/reservierung"
+SEED_URLS = [
+    BASE_URL,
+    f"{BASE_URL}?c=662",
+]
 DEFAULT_TIMEZONE = "Europe/Vienna"
 DEFAULT_TIMEOUT = 30
 USER_AGENT = "tennis-booking-finder/0.1"
@@ -253,47 +257,54 @@ def iter_pages(
     timezone: ZoneInfo,
     timeout: int,
 ) -> Iterable[Slot]:
-    """Iterate through calendar pages and yield all available slots."""
+    """Iterate through calendar pages for each configured seed URL."""
 
-    url = BASE_URL
-    params = None
     seen_urls: set[str] = set()
 
-    for page_index in range(pages):
-        try:
-            html, resolved = fetch_html(session, url, params=params, timeout=timeout)
-        except requests.RequestException as exc:  # pragma: no cover - surfaced to CLI
-            logging.error("Failed to fetch %s: %s", url, exc)
-            raise
-
-        soup = BeautifulSoup(html, "html.parser")
-        page_title = soup.select_one("h1")
-        calendar_label = page_title.get_text(" ", strip=True) if page_title else "Tennis Booking"
-        price_map = parse_price_map(soup)
-
-        for calendar in soup.select("div.calendar"):
-            yield from parse_available_slots(
-                calendar,
-                price_map=price_map,
-                timezone=timezone,
-                calendar_label=calendar_label,
-                source_url=resolved,
-            )
-
-        next_href = extract_next_href(soup)
-        logging.debug("Next href discovered: %s", next_href)
-        if not next_href:
-            break
-
-        absolute_next = urljoin(BASE_URL, next_href)
-        if absolute_next in seen_urls:
-            logging.debug("Already visited %s, stopping traversal", absolute_next)
-            break
-
-        seen_urls.add(absolute_next)
-        url = absolute_next
+    for seed in SEED_URLS:
+        url = seed
         params = None
-        logging.debug("Moving to next page %s (%d/%d)", url, page_index + 1, pages)
+
+        for page_index in range(pages):
+            if url in seen_urls:
+                logging.debug("Skipping already visited URL %s", url)
+                break
+
+            try:
+                html, resolved = fetch_html(session, url, params=params, timeout=timeout)
+            except requests.RequestException as exc:  # pragma: no cover - surfaced to CLI
+                logging.error("Failed to fetch %s: %s", url, exc)
+                raise
+
+            seen_urls.add(resolved)
+
+            soup = BeautifulSoup(html, "html.parser")
+            page_title = soup.select_one("h1")
+            calendar_label = page_title.get_text(" ", strip=True) if page_title else "Tennis Booking"
+            price_map = parse_price_map(soup)
+
+            for calendar in soup.select("div.calendar"):
+                yield from parse_available_slots(
+                    calendar,
+                    price_map=price_map,
+                    timezone=timezone,
+                    calendar_label=calendar_label,
+                    source_url=resolved,
+                )
+
+            next_href = extract_next_href(soup)
+            logging.debug("Next href discovered: %s", next_href)
+            if not next_href:
+                break
+
+            absolute_next = urljoin(BASE_URL, next_href)
+            if absolute_next in seen_urls:
+                logging.debug("Already visited %s, stopping traversal", absolute_next)
+                break
+
+            url = absolute_next
+            params = None
+            logging.debug("Moving to next page %s (%d/%d) for seed %s", url, page_index + 1, pages, seed)
 
 
 def format_slots_text(slots: Sequence[Slot]) -> str:
