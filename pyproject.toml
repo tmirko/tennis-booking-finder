@@ -20,11 +20,11 @@ dev = {features = ["runtime", "dev"], solve-group = "default"}
 
 [tool.pixi.feature.runtime.dependencies]
 python = "3.12.*"
-requests = "*"
-beautifulsoup4 = "*"
+requests = ">=2.32,<3"
+beautifulsoup4 = ">=4.12,<5"
 
 [tool.pixi.feature.dev.dependencies]
-pytest = "*"
+pytest = ">=7.0,<8.0"
 
 [tool.pixi.feature.runtime.tasks]
 run = "python -m src.tennis_booking_finder.cli --pages 1 --format json --timezone Europe/Vienna --timeout 10"
