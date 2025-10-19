@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +28,7 @@ def load_slots(
     pages: int,
     timezone_name: str,
     timeout: int,
-    filter_date_str: str | None,
+    filter_dates: tuple[str, ...] | None,
 ) -> dict[str, Any]:
     """Fetch slots and prepare structured rows for display."""
 
@@ -45,9 +45,13 @@ def load_slots(
         )
     )
 
-    if filter_date_str:
-        target_date = datetime.strptime(filter_date_str, "%Y-%m-%d").date()
-        slots = [slot for slot in slots if slot.start.date() == target_date]
+    if filter_dates:
+        target_dates = set(filter_dates)
+        slots = [
+            slot
+            for slot in slots
+            if slot.start.strftime("%Y-%m-%d") in target_dates
+        ]
 
     slots.sort(key=lambda slot: (slot.start, slot.court_label, slot.calendar_id, slot.court_id))
 
@@ -134,8 +138,8 @@ def main() -> None:
         timeout = st.slider("HTTP timeout (seconds)", min_value=5, max_value=60, value=DEFAULT_TIMEOUT)
         filter_date_input = st.date_input(
             "Filter by date",
-            value=None,
-            help="Leave empty to see all upcoming slots.",
+            value=(),
+            help="Pick a single day or drag to select a range. Leave empty for all upcoming slots.",
         )
         refresh = st.button("Refresh data", type="primary")
 
@@ -144,14 +148,25 @@ def main() -> None:
         st.toast("Cache cleared. Updating…", icon="🔄")
 
     timezone_name = timezone_input.strip() or DEFAULT_TIMEZONE
-    filter_date_str = (
-        filter_date_input.isoformat()
-        if isinstance(filter_date_input, date)
-        else None
-    )
+    filter_dates: tuple[str, ...] | None = None
+    if isinstance(filter_date_input, date):
+        filter_dates = (filter_date_input.isoformat(),)
+    elif isinstance(filter_date_input, tuple):
+        selected_dates = [d for d in filter_date_input if isinstance(d, date)]
+        if len(selected_dates) == 2:
+            start_date, end_date = sorted(selected_dates)
+            total_days = (end_date - start_date).days
+            filter_dates = tuple(
+                (start_date + timedelta(days=offset)).isoformat()
+                for offset in range(total_days + 1)
+            )
+        elif len(selected_dates) == 1:
+            filter_dates = (selected_dates[0].isoformat(),)
+        elif len(selected_dates) > 2:
+            filter_dates = tuple(date_value.isoformat() for date_value in selected_dates)
 
     try:
-        data = load_slots(pages, timezone_name, timeout, filter_date_str)
+        data = load_slots(pages, timezone_name, timeout, filter_dates)
     except ZoneInfoNotFoundError:
         st.error(f"Unknown timezone: {timezone_name}")
         return
