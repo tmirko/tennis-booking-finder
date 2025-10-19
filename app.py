@@ -23,9 +23,32 @@ from tennis_booking_finder.cli import (
 st.set_page_config(page_title="Tennis Booking Finder", layout="wide")
 
 
+def determine_pages(filter_dates: tuple[str, ...] | None, tz: ZoneInfo) -> int:
+    """Return number of 4-day pages to fetch based on selected dates."""
+
+    if not filter_dates:
+        return 1
+
+    today = datetime.now(tz).date()
+    diffs: list[int] = []
+    for date_str in filter_dates:
+        try:
+            target = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        diff = (target - today).days
+        if diff >= 0:
+            diffs.append(diff)
+
+    if not diffs:
+        return 1
+
+    max_diff = max(diffs)
+    return max(1, (max_diff // 4) + 1)
+
+
 @st.cache_data(ttl=600)
 def load_slots(
-    pages: int,
     timezone_name: str,
     timeout: int,
     filter_dates: tuple[str, ...] | None,
@@ -36,10 +59,11 @@ def load_slots(
     session.headers.update({"User-Agent": USER_AGENT})
 
     tz = ZoneInfo(timezone_name)
+    pages_to_fetch = determine_pages(filter_dates, tz)
     slots = list(
         iter_pages(
             session=session,
-            pages=pages,
+            pages=pages_to_fetch,
             timezone=tz,
             timeout=timeout,
         )
@@ -90,6 +114,7 @@ def load_slots(
         "rows": rows,
         "generated_at": generated_at,
         "timezone": timezone_name,
+        "pages": pages_to_fetch,
     }
 
 
@@ -133,7 +158,6 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Options")
-        pages = st.slider("Pages to fetch", min_value=1, max_value=6, value=1)
         timezone_input = st.text_input("Timezone", value=DEFAULT_TIMEZONE)
         timeout = st.slider("HTTP timeout (seconds)", min_value=5, max_value=60, value=DEFAULT_TIMEOUT)
         filter_date_input = st.date_input(
@@ -166,7 +190,7 @@ def main() -> None:
             filter_dates = tuple(date_value.isoformat() for date_value in selected_dates)
 
     try:
-        data = load_slots(pages, timezone_name, timeout, filter_dates)
+        data = load_slots(timezone_name, timeout, filter_dates)
     except ZoneInfoNotFoundError:
         st.error(f"Unknown timezone: {timezone_name}")
         return
@@ -182,7 +206,7 @@ def main() -> None:
 
     col_metrics = st.columns(2)
     col_metrics[0].metric("Slots found", len(rows))
-    col_metrics[1].metric("Pages fetched", pages)
+    col_metrics[1].metric("Pages fetched", data["pages"])
 
     if rows:
         st.dataframe(
