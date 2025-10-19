@@ -377,7 +377,14 @@ def _fetch_blocked_slots(
         return set()
 
     blocked: set[tuple[str, int, str]] = set()
-    for entry in payload.get("slots", []):
+    slot_entries = []
+    if isinstance(payload, dict):
+        slots_value = payload.get("slots", [])
+        if isinstance(slots_value, list):
+            slot_entries = slots_value
+    for entry in slot_entries:
+        if not isinstance(entry, dict):
+            continue
         start_minutes = _time_str_to_minutes(entry.get("start", ""))
         court_raw = entry.get("court")
         date_str = entry.get("date")
