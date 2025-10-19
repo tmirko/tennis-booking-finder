@@ -92,8 +92,11 @@ def load_slots(
 
     rows: list[dict[str, Any]] = []
     for slot in slots:
-        day_text = slot.start.strftime("%Y-%m-%d")
-        start_text = slot.start.strftime("%H:%M")
+        start_label = slot.start.strftime("%Y-%m-%d %H:%M")
+        if slot.start.date() == slot.end.date():
+            slot_label = f"{start_label}-{slot.end.strftime('%H:%M')}"
+        else:
+            slot_label = f"{start_label} - {slot.end.strftime('%Y-%m-%d %H:%M')}"
 
         source_url = slot.source_url
         if slot.provider == "ltm":
@@ -135,8 +138,7 @@ def load_slots(
 
         rows.append(
             {
-                "slot": f"{day_text} {start_text}",
-                "minutes": slot.duration_minutes,
+                "slot": slot_label,
                 "surface": surface,
                 "type": facility_type,
                 "price": slot.price_eur,
@@ -263,7 +265,6 @@ def main() -> None:
             filtered_rows,
             use_container_width=True,
             column_config={
-                "minutes": st.column_config.NumberColumn("minutes", format="%d"),
                 "surface": st.column_config.TextColumn("surface"),
                 "price": st.column_config.NumberColumn("price", format="€%.2f"),
                 "url": st.column_config.LinkColumn("url", display_text="link"),
