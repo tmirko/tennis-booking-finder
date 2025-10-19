@@ -152,7 +152,13 @@ def main() -> None:
     col_metrics[1].metric("Pages fetched", pages)
 
     if rows:
-        st.dataframe(rows, use_container_width=True)
+        st.dataframe(
+            rows,
+            use_container_width=True,
+            column_config={
+                "source_url": st.column_config.LinkColumn("source_url")
+            },
+        )
         csv_payload = build_csv(rows)
         st.download_button(
             "Download CSV",
