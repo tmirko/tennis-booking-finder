@@ -7,6 +7,7 @@ dependencies = [
 	"beautifulsoup4>=4.12,<5",
 	"streamlit>=1.38,<2",
 	"tzdata>=2024.1",
+	"cloudscraper>=1.2,<2",
 ]
 
 [project.scripts]
@@ -26,6 +27,9 @@ requests = ">=2.32,<3"
 beautifulsoup4 = ">=4.12,<5"
 streamlit = ">=1.38,<2"
 tzdata = ">=2024.1"
+
+[tool.pixi.feature.runtime.pypi-dependencies]
+cloudscraper = ">=1.2,<2"
 
 [tool.pixi.feature.dev.dependencies]
 pytest = ">=7.0,<8.0"

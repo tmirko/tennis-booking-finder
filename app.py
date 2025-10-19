@@ -13,12 +13,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 sys.path.append(str(Path(__file__).resolve().parent.joinpath("src")))
 
-from tennis_booking_finder.cli import (
-    DEFAULT_TIMEZONE,
-    DEFAULT_TIMEOUT,
-    USER_AGENT,
-    iter_pages,
-)
+from tennis_booking_finder.settings import DEFAULT_TIMEOUT, DEFAULT_TIMEZONE, USER_AGENT
+from tennis_booking_finder.sources import collect_slots
 
 st.set_page_config(page_title="Tennis Booking Finder", layout="wide")
 
@@ -60,13 +56,21 @@ def load_slots(
 
     tz = ZoneInfo(timezone_name)
     pages_to_fetch = determine_pages(filter_dates, tz)
-    slots = list(
-        iter_pages(
-            session=session,
-            pages=pages_to_fetch,
-            timezone=tz,
-            timeout=timeout,
-        )
+    target_dates: list[date] | None = None
+    if filter_dates:
+        target_dates = []
+        for date_str in filter_dates:
+            try:
+                target_dates.append(datetime.strptime(date_str, "%Y-%m-%d").date())
+            except ValueError:
+                continue
+
+    slots = collect_slots(
+        session=session,
+        pages=pages_to_fetch,
+        timezone=tz,
+        timeout=timeout,
+        dates=target_dates,
     )
 
     if filter_dates:
