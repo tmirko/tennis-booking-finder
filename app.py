@@ -16,6 +16,12 @@ sys.path.append(str(Path(__file__).resolve().parent.joinpath("src")))
 from tennis_booking_finder.settings import DEFAULT_TIMEOUT, DEFAULT_TIMEZONE, USER_AGENT
 from tennis_booking_finder.sources import collect_slots
 
+EVERSPORTS_LOCATIONS: dict[str, str] = {
+    "12886": "sporthotel",
+    "80214": "ksv",
+}
+
+
 st.set_page_config(page_title="Tennis Booking Finder", layout="wide")
 
 
@@ -107,6 +113,13 @@ def load_slots(
         source_url = slot.source_url
         facility_type = "air dome" if "c=662" in source_url else "indoor"
 
+        if slot.provider == "ltm":
+            location = "ltm"
+        elif slot.provider == "eversports":
+            location = EVERSPORTS_LOCATIONS.get(slot.calendar_id, "eversports")
+        else:
+            location = slot.provider or "unknown"
+
         rows.append(
             {
                 "slot": f"{day_text} {start_text}",
@@ -116,6 +129,7 @@ def load_slots(
                 "price": slot.price_eur,
                 "court": slot.court_label,
                 "url": source_url,
+                "location": location,
             }
         )
 
@@ -141,6 +155,7 @@ def build_csv(rows: list[dict[str, Any]]) -> str:
         "price",
         "court",
         "url",
+        "location",
     ]
     writer.writerow(headers)
     for row in rows:
@@ -157,6 +172,7 @@ def build_csv(rows: list[dict[str, Any]]) -> str:
                 price_text,
                 row["court"],
                 row["url"],
+                row["location"],
             ]
         )
     return buffer.getvalue()
@@ -225,6 +241,7 @@ def main() -> None:
                 "surface": st.column_config.TextColumn("surface"),
                 "price": st.column_config.NumberColumn("price", format="€%.2f"),
                 "url": st.column_config.LinkColumn("url"),
+                "location": st.column_config.TextColumn("location"),
             },
         )
         csv_payload = build_csv(rows)
