@@ -168,7 +168,7 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Options")
-        timezone_input = st.text_input("Timezone", value=DEFAULT_TIMEZONE)
+        st.caption(f"Times displayed in {DEFAULT_TIMEZONE}.")
         timeout = st.slider("HTTP timeout (seconds)", min_value=5, max_value=60, value=DEFAULT_TIMEOUT)
         filter_date_input = st.date_input(
             "Filter by date",
@@ -181,7 +181,7 @@ def main() -> None:
         load_slots.clear()
         st.toast("Cache cleared. Updating…", icon="🔄")
 
-    timezone_name = timezone_input.strip() or DEFAULT_TIMEZONE
+    timezone_name = DEFAULT_TIMEZONE
     filter_dates: tuple[str, ...] | None = None
     if isinstance(filter_date_input, date):
         filter_dates = (filter_date_input.isoformat(),)
@@ -214,9 +214,7 @@ def main() -> None:
         f"Last updated {data['generated_at']} (cache refreshes every 10 minutes)."
     )
 
-    col_metrics = st.columns(2)
-    col_metrics[0].metric("Slots found", len(rows))
-    col_metrics[1].metric("Pages fetched", data["pages"])
+    st.metric("Slots found", len(rows))
 
     if rows:
         st.dataframe(
