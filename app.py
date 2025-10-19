@@ -189,7 +189,7 @@ def render_checkbox_filter(
 
 def main() -> None:
     st.title("Vienna Court Finder")
-    st.caption("Live availability fetched directly from court providers (LTM Tennis).")
+    st.caption("Live availability fetched directly from court providers.")
 
     with st.sidebar:
         # st.header("Options")
