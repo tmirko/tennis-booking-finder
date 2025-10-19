@@ -19,6 +19,7 @@ from tennis_booking_finder.sources import collect_slots
 EVERSPORTS_LOCATIONS: dict[str, str] = {
     "12886": "sporthotel",
     "80214": "ksv",
+    "12782": "tennis point",
 }
 
 
@@ -104,6 +105,8 @@ def load_slots(
                 facility_type = "indoor"
             elif location == "ksv":
                 facility_type = "outdoor"
+            elif location == "tennis point":
+                facility_type = "indoor"
             else:
                 facility_type = "indoor"
         else:
@@ -127,6 +130,8 @@ def load_slots(
             surface = "hard"
         elif location == "ksv":
             surface = "clay"
+        elif location == "tennis point":
+            surface = "carpet"
 
         rows.append(
             {

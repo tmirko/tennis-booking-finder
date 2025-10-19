@@ -46,6 +46,20 @@ FACILITIES: tuple[FacilityConfig, ...] = (
         ),
     ),
     FacilityConfig(
+        id="12782",
+        slug="tennis-point-vienna-ej5tqupn",
+        label="Tennis Point Vienna",
+        booking_url="https://www.eversports.at/sb/tennis-point-vienna-ej5tqupn",
+        sports=(
+            SportMeta(
+                id="433",
+                slug="tennis",
+                name="Tennis",
+                uuid="b38729e9-69de-11e8-bdc6-02bd505aa7b2",
+            ),
+        ),
+    ),
+    FacilityConfig(
         id="80214",
         slug="kultur-und-sportvereinigung-der-wiener-gemeindebediensteten",
         label="KSV Wiener Gemeindebedienstete",
