@@ -157,11 +157,16 @@ def load_slots(
     }
 
 
+def _sanitize_option(option: str) -> str:
+    return option.lower().replace(" ", "_")
+
+
 def render_checkbox_filter(
     container,
     label: str,
     options: list[str],
     key_prefix: str,
+    default_selected: set[str] | None = None,
 ) -> list[str]:
     """Render a checkbox group and return the selected entries."""
 
@@ -171,9 +176,10 @@ def render_checkbox_filter(
     container.markdown(f"**{label}**")
     selected: list[str] = []
     for option in options:
-        sanitized_key = option.lower().replace(" ", "_")
+        sanitized_key = _sanitize_option(option)
         checkbox_key = f"{key_prefix}_{sanitized_key}"
-        if container.checkbox(option, value=True, key=checkbox_key):
+        is_checked = option in default_selected if default_selected is not None else True
+        if container.checkbox(option, value=is_checked, key=checkbox_key):
             selected.append(option)
     return selected
 
@@ -231,6 +237,54 @@ def main() -> None:
     type_options = sorted({row["type"] for row in rows})
     location_options = sorted({row["location"] for row in rows})
 
+    prev_selected_surfaces = st.session_state.get("selected_surfaces", [])
+    prev_selected_types = st.session_state.get("selected_types", [])
+    prev_selected_locations = st.session_state.get("selected_locations", [])
+
+    filter_signature = (
+        tuple(surface_options),
+        tuple(type_options),
+        tuple(location_options),
+        filter_dates,
+    )
+    previous_signature = st.session_state.get("filter_signature")
+    if previous_signature != filter_signature:
+        def refresh_checkbox_state(prefix: str, options: list[str], previous: list[str]) -> list[str]:
+            for key in [k for k in st.session_state.keys() if k.startswith(prefix)]:
+                st.session_state.pop(key)
+            if not options:
+                return []
+
+            available = set(options)
+            retained = available & set(previous)
+            if not retained:
+                retained = available
+
+            for option in options:
+                checkbox_key = f"{prefix}{_sanitize_option(option)}"
+                st.session_state[checkbox_key] = option in retained
+
+            return sorted(retained)
+
+        prev_selected_surfaces = refresh_checkbox_state("surface_filter_", surface_options, prev_selected_surfaces)
+        prev_selected_types = refresh_checkbox_state("type_filter_", type_options, prev_selected_types)
+        prev_selected_locations = refresh_checkbox_state("location_filter_", location_options, prev_selected_locations)
+        st.session_state["filter_signature"] = filter_signature
+        st.session_state["selected_surfaces"] = prev_selected_surfaces
+        st.session_state["selected_types"] = prev_selected_types
+        st.session_state["selected_locations"] = prev_selected_locations
+
+    def current_checked(prefix: str, options: list[str]) -> set[str]:
+        return {
+            option
+            for option in options
+            if st.session_state.get(f"{prefix}{_sanitize_option(option)}", True)
+        }
+
+    default_surface_selection = current_checked("surface_filter_", surface_options)
+    default_type_selection = current_checked("type_filter_", type_options)
+    default_location_selection = current_checked("location_filter_", location_options)
+
     selected_surfaces: list[str] = []
     selected_types: list[str] = []
     selected_locations: list[str] = []
@@ -239,11 +293,33 @@ def main() -> None:
         # st.subheader("Filters")
         if rows:
             # st.caption("Uncheck any category to hide matching slots.")
-            selected_locations = render_checkbox_filter(st, "Location", location_options, "location_filter")
-            selected_types = render_checkbox_filter(st, "Type", type_options, "type_filter")
-            selected_surfaces = render_checkbox_filter(st, "Surface", surface_options, "surface_filter")
+            selected_locations = render_checkbox_filter(
+                st,
+                "Location",
+                location_options,
+                "location_filter",
+                default_selected=default_location_selection,
+            )
+            selected_types = render_checkbox_filter(
+                st,
+                "Type",
+                type_options,
+                "type_filter",
+                default_selected=default_type_selection,
+            )
+            selected_surfaces = render_checkbox_filter(
+                st,
+                "Surface",
+                surface_options,
+                "surface_filter",
+                default_selected=default_surface_selection,
+            )
         else:
             st.caption("Filters become available once slots load.")
+
+    st.session_state["selected_surfaces"] = selected_surfaces
+    st.session_state["selected_types"] = selected_types
+    st.session_state["selected_locations"] = selected_locations
 
     filtered_rows = rows
     if surface_options:
