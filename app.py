@@ -94,6 +94,22 @@ def load_slots(
         day_text = slot.start.strftime("%Y-%m-%d")
         start_text = slot.start.strftime("%H:%M")
 
+        source_url = slot.source_url
+        if slot.provider == "ltm":
+            facility_type = "air dome" if "c=662" in source_url else "indoor"
+            location = "ltm"
+        elif slot.provider == "eversports":
+            location = EVERSPORTS_LOCATIONS.get(slot.calendar_id, "eversports")
+            if location == "ksv" and slot.court_label.lower().startswith("hallenplatz"):
+                facility_type = "indoor"
+            elif location == "ksv":
+                facility_type = "outdoor"
+            else:
+                facility_type = "indoor"
+        else:
+            facility_type = "indoor"
+            location = slot.provider or "unknown"
+
         if slot.calendar_label == "Reservierung Festhalle":
             if slot.court_label.strip() == "Platz 5 Hartplatz":
                 surface = "hard"
@@ -109,16 +125,8 @@ def load_slots(
             surface = "carpet"
         elif "opticourt" in court_label_normalized:
             surface = "hard"
-
-        source_url = slot.source_url
-        facility_type = "air dome" if "c=662" in source_url else "indoor"
-
-        if slot.provider == "ltm":
-            location = "ltm"
-        elif slot.provider == "eversports":
-            location = EVERSPORTS_LOCATIONS.get(slot.calendar_id, "eversports")
-        else:
-            location = slot.provider or "unknown"
+        elif location == "ksv":
+            surface = "clay"
 
         rows.append(
             {
@@ -128,8 +136,8 @@ def load_slots(
                 "type": facility_type,
                 "price": slot.price_eur,
                 "court": slot.court_label,
-                "url": source_url,
                 "location": location,
+                "url": source_url,
             }
         )
 
@@ -140,42 +148,6 @@ def load_slots(
         "timezone": timezone_name,
         "pages": pages_to_fetch,
     }
-
-
-def build_csv(rows: list[dict[str, Any]]) -> str:
-    """Return CSV representation for download."""
-
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    headers = [
-        "slot",
-        "minutes",
-        "surface",
-        "type",
-        "price",
-        "court",
-        "url",
-        "location",
-    ]
-    writer.writerow(headers)
-    for row in rows:
-        price_value = row["price"]
-        price_text = (
-            f"{price_value:.2f}" if isinstance(price_value, (int, float)) else ""
-        )
-        writer.writerow(
-            [
-                row["slot"],
-                row["minutes"],
-                row["surface"],
-                row["type"],
-                price_text,
-                row["court"],
-                row["url"],
-                row["location"],
-            ]
-        )
-    return buffer.getvalue()
 
 
 def main() -> None:
@@ -240,16 +212,9 @@ def main() -> None:
                 "minutes": st.column_config.NumberColumn("minutes", format="%d"),
                 "surface": st.column_config.TextColumn("surface"),
                 "price": st.column_config.NumberColumn("price", format="€%.2f"),
-                "url": st.column_config.LinkColumn("url"),
+                "url": st.column_config.LinkColumn("url", display_text="link"),
                 "location": st.column_config.TextColumn("location"),
             },
-        )
-        csv_payload = build_csv(rows)
-        st.download_button(
-            "Download CSV",
-            csv_payload,
-            "tennis_slots.csv",
-            "text/csv",
         )
     else:
         st.info("No available slots found for the selected filters.")
