@@ -98,6 +98,12 @@ def load_slots(
         else:
             surface = slot.calendar_label
 
+        court_label_normalized = slot.court_label.lower()
+        if "teppichgranulat" in court_label_normalized:
+            surface = "carpet"
+        elif "opticourt" in court_label_normalized:
+            surface = "hard"
+
         source_url = slot.source_url
         facility_type = "air dome" if "c=662" in source_url else "indoor"
 
