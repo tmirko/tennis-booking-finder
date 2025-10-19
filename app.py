@@ -179,7 +179,10 @@ def render_checkbox_filter(
         sanitized_key = _sanitize_option(option)
         checkbox_key = f"{key_prefix}_{sanitized_key}"
         is_checked = option in default_selected if default_selected is not None else True
-        if container.checkbox(option, value=is_checked, key=checkbox_key):
+        state_key = checkbox_key
+        if state_key not in st.session_state:
+            st.session_state[state_key] = is_checked
+        if container.checkbox(option, key=checkbox_key):
             selected.append(option)
     return selected
 
