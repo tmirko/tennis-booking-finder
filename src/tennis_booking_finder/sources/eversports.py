@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Iterable, Iterator, Sequence
 
@@ -9,16 +10,63 @@ from zoneinfo import ZoneInfo
 
 from ..models import Slot
 
-BOOKING_PAGE_URL = "https://www.eversports.at/sb/vienna-sporthotel"
 CALENDAR_ENDPOINT = "https://www.eversports.at/api/booking/calendar/update"
-FACILITY_ID = "12886"
-FACILITY_SLUG = "vienna-sporthotel"
-SPORT_META = {
-    "id": "433",
-    "slug": "tennis",
-    "name": "Tennis",
-    "uuid": "b38729e9-69de-11e8-bdc6-02bd505aa7b2",
-}
+
+
+@dataclass(frozen=True)
+class SportMeta:
+    id: str
+    slug: str
+    name: str
+    uuid: str
+
+
+@dataclass(frozen=True)
+class FacilityConfig:
+    id: str
+    slug: str
+    label: str
+    booking_url: str
+    sports: tuple[SportMeta, ...]
+
+
+FACILITIES: tuple[FacilityConfig, ...] = (
+    FacilityConfig(
+        id="12886",
+        slug="vienna-sporthotel",
+        label="Vienna Sporthotel",
+        booking_url="https://www.eversports.at/sb/vienna-sporthotel",
+        sports=(
+            SportMeta(
+                id="433",
+                slug="tennis",
+                name="Tennis",
+                uuid="b38729e9-69de-11e8-bdc6-02bd505aa7b2",
+            ),
+        ),
+    ),
+    FacilityConfig(
+        id="80214",
+        slug="kultur-und-sportvereinigung-der-wiener-gemeindebediensteten",
+        label="KSV Wiener Gemeindebedienstete",
+        booking_url="https://www.eversports.at/sb/kultur-und-sportvereinigung-der-wiener-gemeindebediensteten",
+        sports=(
+            SportMeta(
+                id="1747",
+                slug="tennis-outdoor",
+                name="Tennis outdoor",
+                uuid="b389170d-69de-11e8-bdc6-02bd505aa7b2",
+            ),
+            SportMeta(
+                id="1748",
+                slug="tennis-indoor",
+                name="Tennis indoor",
+                uuid="b38917a8-69de-11e8-bdc6-02bd505aa7b2",
+            ),
+        ),
+    ),
+)
+
 PROVIDER = "eversports"
 AVAILABLE_STATES = {"free", "open"}
 BUSY_TOKENS = {
@@ -44,34 +92,57 @@ def fetch_slots(
     slots: list[Slot] = []
     seen: set[tuple[str, str, datetime]] = set()
 
-    for current_date in target_dates:
-        html = _fetch_calendar_html(scraper, current_date, timeout)
-        soup = BeautifulSoup(html, "html.parser")
-        court_ids = _extract_court_ids(soup)
-        blocked = _fetch_blocked_slots(
-            scraper,
-            current_date,
-            court_ids,
-            timeout,
-        )
-        for slot in _parse_calendar_html(soup, current_date, timezone, blocked):
-            key = (slot.calendar_id, slot.court_id, slot.start)
-            if key in seen:
-                continue
-            seen.add(key)
-            slots.append(slot)
+    for facility in FACILITIES:
+        for current_date in target_dates:
+            for sport in facility.sports:
+                html = _fetch_calendar_html(
+                    scraper,
+                    facility=facility,
+                    sport=sport,
+                    target_date=current_date,
+                    timeout=timeout,
+                )
+                soup = BeautifulSoup(html, "html.parser")
+                court_ids = _extract_court_ids(soup)
+                blocked = _fetch_blocked_slots(
+                    scraper,
+                    facility=facility,
+                    start_date=current_date,
+                    court_ids=court_ids,
+                    timeout=timeout,
+                )
+                for slot in _parse_calendar_html(
+                    soup,
+                    fallback_date=current_date,
+                    timezone=timezone,
+                    blocked_slots=blocked,
+                    facility=facility,
+                    sport=sport,
+                ):
+                    key = (slot.calendar_id, slot.court_id, slot.start)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    slots.append(slot)
 
     return slots
 
 
-def _fetch_calendar_html(scraper: cloudscraper.CloudScraper, target_date: date, timeout: int) -> str:
+def _fetch_calendar_html(
+    scraper: cloudscraper.CloudScraper,
+    *,
+    facility: FacilityConfig,
+    sport: SportMeta,
+    target_date: date,
+    timeout: int,
+) -> str:
     data = {
-        "facilityId": FACILITY_ID,
-        "facilitySlug": FACILITY_SLUG,
-        "sport[id]": SPORT_META["id"],
-        "sport[slug]": SPORT_META["slug"],
-        "sport[name]": SPORT_META["name"],
-        "sport[uuid]": SPORT_META["uuid"],
+        "facilityId": facility.id,
+        "facilitySlug": facility.slug,
+        "sport[id]": sport.id,
+        "sport[slug]": sport.slug,
+        "sport[name]": sport.name,
+        "sport[uuid]": sport.uuid,
         "date": target_date.isoformat(),
         "type": "user",
     }
@@ -85,6 +156,9 @@ def _parse_calendar_html(
     fallback_date: date,
     timezone: ZoneInfo,
     blocked_slots: set[tuple[str, int, str]] | None = None,
+    *,
+    facility: FacilityConfig,
+    sport: SportMeta,
 ) -> Iterator[Slot]:
     if isinstance(soup, str):
         soup = BeautifulSoup(soup, "html.parser")
@@ -104,7 +178,11 @@ def _parse_calendar_html(
             court_label = header_cell.get_text(strip=True)
             court_id = header_cell.get("data-court", "")
             court_uuid = header_cell.get("data-court-uuid", "")
-            calendar_label = court_row.get("data-area", "Vienna Sporthotel")
+            calendar_label = (
+                court_row.get("data-area")
+                or sport.name
+                or facility.label
+            )
 
             court_key = court_id or court_uuid or court_label
             candidates: dict[tuple[str, str, str], tuple] = {}
@@ -148,6 +226,8 @@ def _parse_calendar_html(
                     court_label=court_label,
                     court_id=court_id or court_uuid,
                     calendar_label=calendar_label,
+                    facility=facility,
+                    sport=sport,
                 )
                 if slot:
                     yield slot
@@ -160,7 +240,9 @@ def _build_slot(
     timezone: ZoneInfo,
     court_label: str,
     court_id: str,
-    calendar_label: str,
+    calendar_label: str | None,
+    facility: FacilityConfig,
+    sport: SportMeta,
 ) -> Slot | None:
     state = (slot_cell.get("data-state") or "").strip().lower()
     if state not in AVAILABLE_STATES:
@@ -217,8 +299,8 @@ def _build_slot(
             return None
 
     return Slot(
-        calendar_id=FACILITY_ID,
-        calendar_label=calendar_label or "Vienna Sporthotel",
+        calendar_id=facility.id,
+        calendar_label=calendar_label or sport.name or facility.label,
         court_id=court_id,
         court_label=court_label,
         start=start_dt,
@@ -226,7 +308,7 @@ def _build_slot(
         duration_minutes=duration_minutes,
         price_eur=price_value,
         price_code=price_code,
-        source_url=BOOKING_PAGE_URL,
+        source_url=facility.booking_url,
         provider=PROVIDER,
     )
 
@@ -253,6 +335,8 @@ def _time_str_to_minutes(raw: str) -> int | None:
 
 def _fetch_blocked_slots(
     scraper: cloudscraper.CloudScraper,
+    *,
+    facility: FacilityConfig,
     start_date: date,
     court_ids: set[str],
     timeout: int,
@@ -261,7 +345,7 @@ def _fetch_blocked_slots(
         return set()
 
     params: list[tuple[str, str]] = [
-        ("facilityId", FACILITY_ID),
+        ("facilityId", facility.id),
         ("startDate", start_date.isoformat()),
     ]
     for court in sorted(court_ids):
