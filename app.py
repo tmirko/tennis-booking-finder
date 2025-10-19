@@ -53,15 +53,31 @@ def load_slots(
 
     rows: list[dict[str, Any]] = []
     for slot in slots:
+        day_text = slot.start.strftime("%Y-%m-%d")
+        start_text = slot.start.strftime("%H:%M")
+
+        if slot.calendar_label == "Reservierung Festhalle":
+            if slot.court_label.strip() == "Platz 5 Hartplatz":
+                surface = "hard"
+            else:
+                surface = "carpet"
+        elif slot.calendar_label == "Reservierung Traglufthalle":
+            surface = "clay"
+        else:
+            surface = slot.calendar_label
+
+        source_url = slot.source_url
+        facility_type = "air dome" if "c=662" in source_url else "indoor"
+
         rows.append(
             {
-                "source_url": slot.source_url,
-                "calendar_label": slot.calendar_label,
-                "court_label": slot.court_label,
-                "day": slot.start.strftime("%Y-%m-%d"),
-                "start": slot.start.strftime("%H:%M"),
-                "duration_minutes": slot.duration_minutes,
+                "slot": f"{day_text} {start_text}",
+                "minutes": slot.duration_minutes,
+                "surface": surface,
+                "type": facility_type,
                 "price": slot.price_eur,
+                "court": slot.court_label,
+                "url": source_url,
             }
         )
 
@@ -79,27 +95,29 @@ def build_csv(rows: list[dict[str, Any]]) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     headers = [
-        "source_url",
-        "calendar_label",
-        "court_label",
-        "day",
-        "start",
-        "duration_minutes",
+        "slot",
+        "minutes",
+        "surface",
+        "type",
         "price",
+        "court",
+        "url",
     ]
     writer.writerow(headers)
     for row in rows:
         price_value = row["price"]
-        price_text = f"{price_value:.2f}" if isinstance(price_value, (int, float)) else ""
+        price_text = (
+            f"{price_value:.2f}" if isinstance(price_value, (int, float)) else ""
+        )
         writer.writerow(
             [
-                row["source_url"],
-                row["calendar_label"],
-                row["court_label"],
-                row["day"],
-                row["start"],
-                row["duration_minutes"],
+                row["slot"],
+                row["minutes"],
+                row["surface"],
+                row["type"],
                 price_text,
+                row["court"],
+                row["url"],
             ]
         )
     return buffer.getvalue()
@@ -156,7 +174,10 @@ def main() -> None:
             rows,
             use_container_width=True,
             column_config={
-                "source_url": st.column_config.LinkColumn("source_url")
+                "minutes": st.column_config.NumberColumn("minutes", format="%d"),
+                "surface": st.column_config.TextColumn("surface"),
+                "price": st.column_config.NumberColumn("price", format="€%.2f"),
+                "url": st.column_config.LinkColumn("url"),
             },
         )
         csv_payload = build_csv(rows)
