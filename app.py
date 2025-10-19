@@ -150,20 +150,43 @@ def load_slots(
     }
 
 
+def render_checkbox_filter(
+    container,
+    label: str,
+    options: list[str],
+    key_prefix: str,
+) -> list[str]:
+    """Render a checkbox group and return the selected entries."""
+
+    if not options:
+        return []
+
+    container.markdown(f"**{label}**")
+    selected: list[str] = []
+    for option in options:
+        sanitized_key = option.lower().replace(" ", "_")
+        checkbox_key = f"{key_prefix}_{sanitized_key}"
+        if container.checkbox(option, value=True, key=checkbox_key):
+            selected.append(option)
+    return selected
+
+
 def main() -> None:
     st.title("Vienna Court Finder")
     st.caption("Live availability fetched directly from court providers (LTM Tennis).")
 
     with st.sidebar:
-        st.header("Options")
-        st.caption(f"Times displayed in {DEFAULT_TIMEZONE}.")
-        timeout = st.slider("HTTP timeout (seconds)", min_value=5, max_value=60, value=DEFAULT_TIMEOUT)
+        # st.header("Options")
+        # st.caption(f"Times displayed in {DEFAULT_TIMEZONE}.")
         filter_date_input = st.date_input(
             "Filter by date",
-            value=(),
-            help="Pick a single day or drag to select a range. Leave empty for all upcoming slots.",
+            value=date.today(),
+            help="Pick a single day to filter upcoming slots.",
         )
         refresh = st.button("Refresh data", type="primary")
+        filters_placeholder = st.container()
+        timeout = st.slider("HTTP timeout (seconds)", min_value=5, max_value=60, value=DEFAULT_TIMEOUT)
+
 
     if refresh:
         load_slots.clear()
@@ -197,16 +220,42 @@ def main() -> None:
         return
 
     rows = data["rows"]
+    surface_options = sorted({row["surface"] for row in rows})
+    type_options = sorted({row["type"] for row in rows})
+    location_options = sorted({row["location"] for row in rows})
+
+    selected_surfaces: list[str] = []
+    selected_types: list[str] = []
+    selected_locations: list[str] = []
+
+    with filters_placeholder:
+        # st.subheader("Filters")
+        if rows:
+            # st.caption("Uncheck any category to hide matching slots.")
+            selected_locations = render_checkbox_filter(st, "Location", location_options, "location_filter")
+            selected_types = render_checkbox_filter(st, "Type", type_options, "type_filter")
+            selected_surfaces = render_checkbox_filter(st, "Surface", surface_options, "surface_filter")
+        else:
+            st.caption("Filters become available once slots load.")
+
+    filtered_rows = rows
+    if surface_options:
+        filtered_rows = [row for row in filtered_rows if row["surface"] in selected_surfaces]
+    if type_options:
+        filtered_rows = [row for row in filtered_rows if row["type"] in selected_types]
+    if location_options:
+        filtered_rows = [row for row in filtered_rows if row["location"] in selected_locations]
+
     st.subheader("Available Slots")
     st.caption(
         f"Last updated {data['generated_at']} (cache refreshes every 10 minutes)."
     )
 
-    st.metric("Slots found", len(rows))
+    st.metric("Slots found", len(filtered_rows))
 
-    if rows:
+    if filtered_rows:
         st.dataframe(
-            rows,
+            filtered_rows,
             use_container_width=True,
             column_config={
                 "minutes": st.column_config.NumberColumn("minutes", format="%d"),
