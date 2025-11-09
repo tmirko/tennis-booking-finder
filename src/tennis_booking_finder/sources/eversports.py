@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from typing import Iterable, Iterator, Sequence
 
 import cloudscraper
+import requests
 from bs4 import BeautifulSoup
 from zoneinfo import ZoneInfo
 
@@ -130,47 +131,88 @@ def fetch_slots(
     slots: list[Slot] = []
     seen: set[tuple[str, str, datetime]] = set()
     errors: list[str] = []
+    
+    # Track which facilities we've initialized (visited their booking page)
+    initialized_facilities: set[str] = set()
 
     for facility in FACILITIES:
+        # Initialize session by visiting the booking page first (establishes cookies/session)
+        if facility.id not in initialized_facilities:
+            try:
+                logger.debug(f"Initializing session for {facility.label} by visiting booking page")
+                # First visit the main page to establish initial session
+                try:
+                    scraper.get(
+                        'https://www.eversports.at/',
+                        timeout=timeout,
+                        headers={
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                            'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
+                        }
+                    )
+                    time.sleep(0.5)
+                except Exception:
+                    pass  # Continue anyway
+                
+                # Then visit the specific facility booking page
+                init_response = scraper.get(
+                    facility.booking_url,
+                    timeout=timeout,
+                    headers={
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
+                        'Referer': 'https://www.eversports.at/',
+                    }
+                )
+                init_response.raise_for_status()
+                initialized_facilities.add(facility.id)
+                # Small delay after initialization to let session settle
+                time.sleep(1.5)
+            except Exception as init_e:
+                logger.warning(f"Failed to initialize session for {facility.label}: {init_e}")
+                # Continue anyway, might still work
+        
         for current_date in target_dates:
             for sport in facility.sports:
-                try:
-                    html = _fetch_calendar_html(
-                        scraper,
-                        facility=facility,
-                        sport=sport,
-                        target_date=current_date,
-                        timeout=timeout,
-                    )
-                    soup = BeautifulSoup(html, "html.parser")
-                    court_ids = _extract_court_ids(soup)
-                    blocked = _fetch_blocked_slots(
-                        scraper,
-                        facility=facility,
-                        start_date=current_date,
-                        court_ids=court_ids,
-                        timeout=timeout,
-                    )
-                    for slot in _parse_calendar_html(
-                        soup,
-                        fallback_date=current_date,
-                        timezone=timezone,
-                        blocked_slots=blocked,
-                        facility=facility,
-                        sport=sport,
-                    ):
-                        key = (slot.calendar_id, slot.court_id, slot.start)
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        slots.append(slot)
-                except cloudscraper.exceptions.CloudflareChallengeError as e:
-                    error_msg = f"Cloudflare challenge failed for {facility.label} ({facility.id}) on {current_date}: {e}"
-                    logger.warning(error_msg)
-                    errors.append(error_msg)
-                    # Retry once with a longer delay
+                max_retries = 2
+                retry_count = 0
+                success = False
+                
+                while retry_count <= max_retries and not success:
                     try:
-                        time.sleep(2)
+                        if retry_count > 0:
+                            # Wait longer between retries
+                            wait_time = 2 * retry_count
+                            logger.debug(f"Retrying {facility.label} (attempt {retry_count + 1}/{max_retries + 1}) after {wait_time}s")
+                            time.sleep(wait_time)
+                            
+                            # Re-initialize session on retry
+                            try:
+                                # First visit main page
+                                scraper.get(
+                                    'https://www.eversports.at/',
+                                    timeout=timeout,
+                                    headers={
+                                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                                        'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
+                                    }
+                                )
+                                time.sleep(0.5)
+                                # Then visit facility page
+                                init_response = scraper.get(
+                                    facility.booking_url,
+                                    timeout=timeout,
+                                    headers={
+                                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                                        'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
+                                        'Referer': 'https://www.eversports.at/',
+                                    }
+                                )
+                                init_response.raise_for_status()
+                                time.sleep(1.5)
+                            except Exception:
+                                pass  # Continue with retry anyway
+                        
                         html = _fetch_calendar_html(
                             scraper,
                             facility=facility,
@@ -200,14 +242,39 @@ def fetch_slots(
                                 continue
                             seen.add(key)
                             slots.append(slot)
-                    except Exception as retry_e:
-                        logger.warning(f"Retry also failed for {facility.label}: {retry_e}")
-                        continue
-                except Exception as e:
-                    error_msg = f"Error fetching {facility.label} ({facility.id}) on {current_date}: {type(e).__name__}: {e}"
-                    logger.warning(error_msg, exc_info=True)
-                    errors.append(error_msg)
-                    continue
+                        success = True
+                    except cloudscraper.exceptions.CloudflareChallengeError as e:
+                        error_msg = f"Cloudflare challenge failed for {facility.label} ({facility.id}) on {current_date}: {e}"
+                        if retry_count == 0:
+                            logger.warning(error_msg)
+                            errors.append(error_msg)
+                        retry_count += 1
+                        if retry_count > max_retries:
+                            logger.warning(f"Max retries reached for {facility.label}")
+                    except requests.exceptions.HTTPError as e:
+                        if e.response and e.response.status_code == 403:
+                            error_msg = f"403 Forbidden for {facility.label} ({facility.id}) on {current_date}"
+                            if retry_count == 0:
+                                logger.warning(error_msg)
+                                errors.append(error_msg)
+                            retry_count += 1
+                            if retry_count > max_retries:
+                                logger.warning(f"Max retries reached for {facility.label} (403 Forbidden)")
+                        else:
+                            # Other HTTP errors, don't retry
+                            error_msg = f"HTTP error for {facility.label} ({facility.id}) on {current_date}: {e}"
+                            logger.warning(error_msg)
+                            errors.append(error_msg)
+                            break
+                    except Exception as e:
+                        error_msg = f"Error fetching {facility.label} ({facility.id}) on {current_date}: {type(e).__name__}: {e}"
+                        if retry_count == 0:
+                            logger.warning(error_msg, exc_info=True)
+                            errors.append(error_msg)
+                        retry_count += 1
+                        if retry_count > max_retries:
+                            break
+                
                 # Small delay between requests to avoid rate limiting
                 time.sleep(0.5)
 
