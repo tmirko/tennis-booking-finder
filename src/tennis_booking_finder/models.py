@@ -20,6 +20,7 @@ class Slot:
     price_code: Optional[str]
     source_url: str
     provider: Optional[str] = None
+    sport: str = "tennis"
 
     def to_dict(self) -> dict[str, object]:
         """Return a JSON-serialisable representation of the slot."""
@@ -38,4 +39,5 @@ class Slot:
         }
         if self.provider:
             data["provider"] = self.provider
+        data["sport"] = self.sport
         return data

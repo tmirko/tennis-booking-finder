@@ -324,6 +324,7 @@ def _build_slot(
         price_code=price_code,
         source_url=facility.booking_url,
         provider=PROVIDER,
+        sport="tennis",
     )
 
 
