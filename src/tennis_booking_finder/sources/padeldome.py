@@ -12,12 +12,15 @@ from zoneinfo import ZoneInfo
 
 from ..models import Slot
 
-BASE_URL = "https://ltm.tennisplatz.info/reservierung"
+BASE_URL = "https://www.padeldome.wien/reservierung"
+# Calendar IDs for different Padeldome locations
 SEED_URLS = [
-    BASE_URL,
-    f"{BASE_URL}?c=662",
+    f"{BASE_URL}?c=2665",  # Padel ERDBERG
+    f"{BASE_URL}?c=2668",  # Padel ALT ERLAA
+    f"{BASE_URL}?c=3216",  # Padel ALTE DONAU indoor
+    f"{BASE_URL}?c=3218",  # Padel ALTE DONAU outdoor
 ]
-PROVIDER = "ltm"
+PROVIDER = "padeldome"
 
 PRICE_COLOR_PATTERN = re.compile(
     r"\.price(?P<code>\d+):after[^}]*background:\s*(?P<color>#[0-9a-fA-F]{3,6})",
@@ -212,7 +215,7 @@ def _build_slot(
         price_code=price_code,
         source_url=source_url,
         provider=PROVIDER,
-        sport="tennis",
+        sport="padel",
     )
 
 
@@ -251,7 +254,7 @@ def fetch_slots(
 
             soup = BeautifulSoup(html, "html.parser")
             page_title = soup.select_one("h1")
-            calendar_label = page_title.get_text(" ", strip=True) if page_title else "Tennis Booking"
+            calendar_label = page_title.get_text(" ", strip=True) if page_title else "Padel Booking"
             page_colors = parse_price_colors(soup)
             price_map = parse_price_map(soup)
             if price_map:
@@ -296,3 +299,4 @@ def fetch_slots(
             url = absolute_next
             params = None
             logging.debug("Moving to next page %s (%d/%d) for seed %s", url, page_index + 1, pages, seed)
+

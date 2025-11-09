@@ -23,7 +23,7 @@ EVERSPORTS_LOCATIONS: dict[str, str] = {
 }
 
 
-st.set_page_config(page_title="Tennis Booking Finder", layout="wide")
+st.set_page_config(page_title="Court Booking Finder", layout="wide")
 
 
 def determine_pages(filter_dates: tuple[str, ...] | None, tz: ZoneInfo) -> int:
@@ -55,6 +55,7 @@ def load_slots(
     timezone_name: str,
     timeout: int,
     filter_dates: tuple[str, ...] | None,
+    sport: str,
 ) -> dict[str, Any]:
     """Fetch slots and prepare structured rows for display."""
 
@@ -78,6 +79,7 @@ def load_slots(
         timezone=tz,
         timeout=timeout,
         dates=target_dates,
+        sport=sport,
     )
 
     if filter_dates:
@@ -112,6 +114,22 @@ def load_slots(
                 facility_type = "indoor"
             else:
                 facility_type = "indoor"
+        elif slot.provider == "padeldome":
+            # Extract location from calendar_label (e.g., "Reservierung Padel ERDBERG" -> "padeldome erdberg")
+            calendar_lower = slot.calendar_label.lower()
+            facility_type = "indoor"  # Default for padel
+            if "erdberg" in calendar_lower:
+                location = "padeldome erdberg"
+            elif "alt erlaa" in calendar_lower or "alterlaa" in calendar_lower:
+                location = "padeldome alt erlaa"
+            elif "alte donau" in calendar_lower:
+                location = "padeldome alte donau"
+                if "outdoor" in calendar_lower:
+                    facility_type = "outdoor"
+                else:
+                    facility_type = "indoor"
+            else:
+                location = "padeldome"
         else:
             facility_type = "indoor"
             location = slot.provider or "unknown"
@@ -127,7 +145,9 @@ def load_slots(
             surface = slot.calendar_label
 
         court_label_normalized = slot.court_label.lower()
-        if "teppichgranulat" in court_label_normalized:
+        if slot.sport == "padel":
+            surface = "carpet"
+        elif "teppichgranulat" in court_label_normalized:
             surface = "carpet"
         elif "opticourt" in court_label_normalized:
             surface = "hard"
@@ -194,6 +214,12 @@ def main() -> None:
     with st.sidebar:
         # st.header("Options")
         # st.caption(f"Times displayed in {DEFAULT_TIMEZONE}.")
+        sport = st.selectbox(
+            "Sport",
+            options=["tennis", "padel"],
+            index=0,  # Tennis is default
+            help="Select the sport to search for available courts.",
+        )
         filter_date_input = st.date_input(
             "Filter by date",
             value=date.today(),
@@ -227,7 +253,7 @@ def main() -> None:
             filter_dates = tuple(date_value.isoformat() for date_value in selected_dates)
 
     try:
-        data = load_slots(timezone_name, timeout, filter_dates)
+        data = load_slots(timezone_name, timeout, filter_dates, sport)
     except ZoneInfoNotFoundError:
         st.error(f"Unknown timezone: {timezone_name}")
         return
@@ -245,6 +271,7 @@ def main() -> None:
     prev_selected_locations = st.session_state.get("selected_locations", [])
 
     filter_signature = (
+        sport,
         tuple(surface_options),
         tuple(type_options),
         tuple(location_options),
@@ -252,7 +279,7 @@ def main() -> None:
     )
     previous_signature = st.session_state.get("filter_signature")
     if previous_signature != filter_signature:
-        def refresh_checkbox_state(prefix: str, options: list[str], previous: list[str]) -> list[str]:
+        def refresh_checkbox_state(prefix: str, options: list[str], previous: list[str], exclude_defaults: set[str] | None = None, include_defaults: set[str] | None = None) -> list[str]:
             for key in [k for k in st.session_state.keys() if k.startswith(prefix)]:
                 st.session_state.pop(key)
             if not options:
@@ -262,6 +289,12 @@ def main() -> None:
             retained = available & set(previous)
             if not retained:
                 retained = available
+                if exclude_defaults:
+                    retained = retained - exclude_defaults
+            
+            # Always include specified defaults that are available
+            if include_defaults:
+                retained = retained | (include_defaults & available)
 
             for option in options:
                 checkbox_key = f"{prefix}{_sanitize_option(option)}"
@@ -269,9 +302,18 @@ def main() -> None:
 
             return sorted(retained)
 
+        # Set default selections for padel
+        exclude_locations = set()
+        include_locations = set()
+        exclude_types = set()
+        include_types = set()
+        if sport == "padel":
+            include_locations.add("padeldome erdberg")
+            include_types.add("outdoor")
+
         prev_selected_surfaces = refresh_checkbox_state("surface_filter_", surface_options, prev_selected_surfaces)
-        prev_selected_types = refresh_checkbox_state("type_filter_", type_options, prev_selected_types)
-        prev_selected_locations = refresh_checkbox_state("location_filter_", location_options, prev_selected_locations)
+        prev_selected_types = refresh_checkbox_state("type_filter_", type_options, prev_selected_types, exclude_defaults=exclude_types, include_defaults=include_types)
+        prev_selected_locations = refresh_checkbox_state("location_filter_", location_options, prev_selected_locations, exclude_defaults=exclude_locations, include_defaults=include_locations)
         st.session_state["filter_signature"] = filter_signature
         st.session_state["selected_surfaces"] = prev_selected_surfaces
         st.session_state["selected_types"] = prev_selected_types
