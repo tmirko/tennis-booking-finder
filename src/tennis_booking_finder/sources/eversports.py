@@ -107,18 +107,39 @@ def fetch_slots(
     dates: Sequence[date] | None = None,
 ) -> Iterable[Slot]:
     target_dates = list(dict.fromkeys(dates or [datetime.now(timezone).date()]))
-    # Configure cloudscraper with realistic browser headers to avoid 403 errors
-    scraper = cloudscraper.create_scraper(
-        browser={
-            'browser': 'chrome',
-            'platform': 'windows',
-            'desktop': True
-        }
-    )
+    # Try different browser configurations - start with firefox on linux (more common for servers)
+    # If that fails, cloudscraper will fall back automatically
+    browser_configs = [
+        {'browser': 'firefox', 'platform': 'linux', 'desktop': True},
+        {'browser': 'chrome', 'platform': 'linux', 'desktop': True},
+        {'browser': 'chrome', 'platform': 'windows', 'desktop': True},
+    ]
+    
+    scraper = None
+    for config in browser_configs:
+        try:
+            scraper = cloudscraper.create_scraper(browser=config)
+            # Test if it works by making a simple request
+            test_response = scraper.get('https://www.eversports.at/', timeout=10, allow_redirects=True)
+            if test_response.status_code == 200:
+                logger.debug(f"Successfully initialized cloudscraper with {config}")
+                break
+            elif test_response.status_code == 403:
+                logger.debug(f"403 with {config}, trying next configuration...")
+                continue
+        except Exception as e:
+            logger.debug(f"Failed to initialize with {config}: {e}, trying next...")
+            continue
+    
+    # If all configs failed, use the last one anyway
+    if scraper is None:
+        scraper = cloudscraper.create_scraper(browser=browser_configs[0])
+        logger.warning("Using default cloudscraper configuration, may encounter issues")
+    
     # Add additional headers to make requests look more like a real browser
     scraper.headers.update({
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
         'Accept-Encoding': 'gzip, deflate, br',
         'DNT': '1',
         'Connection': 'keep-alive',
@@ -126,6 +147,7 @@ def fetch_slots(
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
         'Cache-Control': 'max-age=0',
     })
     slots: list[Slot] = []
@@ -136,41 +158,43 @@ def fetch_slots(
     initialized_facilities: set[str] = set()
 
     for facility in FACILITIES:
-        # Initialize session by visiting the booking page first (establishes cookies/session)
+        # Try to initialize session, but don't fail if it doesn't work
+        # Some Cloudflare setups allow API calls even if page visits are blocked
         if facility.id not in initialized_facilities:
+            init_success = False
             try:
-                logger.debug(f"Initializing session for {facility.label} by visiting booking page")
-                # First visit the main page to establish initial session
+                logger.debug(f"Attempting to initialize session for {facility.label}")
+                # Try visiting main page first
                 try:
-                    scraper.get(
+                    main_response = scraper.get(
                         'https://www.eversports.at/',
                         timeout=timeout,
-                        headers={
-                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                            'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
-                        }
+                        allow_redirects=True,
                     )
-                    time.sleep(0.5)
-                except Exception:
-                    pass  # Continue anyway
-                
-                # Then visit the specific facility booking page
-                init_response = scraper.get(
-                    facility.booking_url,
-                    timeout=timeout,
-                    headers={
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
-                        'Referer': 'https://www.eversports.at/',
-                    }
-                )
-                init_response.raise_for_status()
-                initialized_facilities.add(facility.id)
-                # Small delay after initialization to let session settle
-                time.sleep(1.5)
+                    if main_response.status_code == 200:
+                        time.sleep(1)  # Wait a bit
+                        # Try visiting facility page
+                        init_response = scraper.get(
+                            facility.booking_url,
+                            timeout=timeout,
+                            allow_redirects=True,
+                            headers={
+                                'Referer': 'https://www.eversports.at/',
+                            }
+                        )
+                        if init_response.status_code == 200:
+                            initialized_facilities.add(facility.id)
+                            init_success = True
+                            logger.debug(f"Successfully initialized session for {facility.label}")
+                            time.sleep(1.5)
+                except requests.exceptions.HTTPError as http_err:
+                    if http_err.response and http_err.response.status_code == 403:
+                        logger.debug(f"403 on initialization for {facility.label}, will try direct API call")
+                    else:
+                        raise
             except Exception as init_e:
-                logger.warning(f"Failed to initialize session for {facility.label}: {init_e}")
-                # Continue anyway, might still work
+                logger.debug(f"Session initialization failed for {facility.label}: {init_e}")
+                # Continue - we'll try direct API calls anyway
         
         for current_date in target_dates:
             for sport in facility.sports:

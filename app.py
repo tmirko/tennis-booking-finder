@@ -280,10 +280,18 @@ def main() -> None:
     
     # Show warning if Eversport is expected but not found (for tennis sport)
     if sport == "tennis" and "eversports" not in providers_found:
-        st.warning(
-            "⚠️ Eversport courts are not currently available. This may be due to Cloudflare protection "
-            "blocking requests from the server. Check the server logs for details. Other providers are working normally."
-        )
+        with st.expander("⚠️ Eversport courts unavailable", expanded=True):
+            st.warning(
+                "**Eversport courts are currently unavailable.**\n\n"
+                "This is likely due to Cloudflare's bot protection blocking requests from Streamlit Cloud's servers. "
+                "The app is working correctly, but Eversport's website is blocking automated access.\n\n"
+                "**Possible solutions:**\n"
+                "• Run the app locally - it works fine on your local machine\n"
+                "• Use a different deployment platform (not Streamlit Cloud)\n"
+                "• Contact Eversport about API access\n"
+                "• Use a proxy service (requires additional setup)\n\n"
+                "Other providers (LTM) are working normally."
+            )
     
     surface_options = sorted({row["surface"] for row in rows})
     type_options = sorted({row["type"] for row in rows})
@@ -407,7 +415,7 @@ def main() -> None:
     if filtered_rows:
         st.dataframe(
             filtered_rows,
-            use_container_width=True,
+            width='stretch',
             column_config={
                 "surface": st.column_config.TextColumn("surface"),
                 "price": st.column_config.NumberColumn("price", format="€%.2f"),
