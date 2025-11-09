@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Iterable, Iterator, Sequence
@@ -102,42 +103,71 @@ def fetch_slots(
     dates: Sequence[date] | None = None,
 ) -> Iterable[Slot]:
     target_dates = list(dict.fromkeys(dates or [datetime.now(timezone).date()]))
-    scraper = cloudscraper.create_scraper()
+    # Configure cloudscraper with realistic browser headers to avoid 403 errors
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        }
+    )
+    # Add additional headers to make requests look more like a real browser
+    scraper.headers.update({
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,de;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Cache-Control': 'max-age=0',
+    })
     slots: list[Slot] = []
     seen: set[tuple[str, str, datetime]] = set()
 
     for facility in FACILITIES:
         for current_date in target_dates:
             for sport in facility.sports:
-                html = _fetch_calendar_html(
-                    scraper,
-                    facility=facility,
-                    sport=sport,
-                    target_date=current_date,
-                    timeout=timeout,
-                )
-                soup = BeautifulSoup(html, "html.parser")
-                court_ids = _extract_court_ids(soup)
-                blocked = _fetch_blocked_slots(
-                    scraper,
-                    facility=facility,
-                    start_date=current_date,
-                    court_ids=court_ids,
-                    timeout=timeout,
-                )
-                for slot in _parse_calendar_html(
-                    soup,
-                    fallback_date=current_date,
-                    timezone=timezone,
-                    blocked_slots=blocked,
-                    facility=facility,
-                    sport=sport,
-                ):
-                    key = (slot.calendar_id, slot.court_id, slot.start)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    slots.append(slot)
+                try:
+                    html = _fetch_calendar_html(
+                        scraper,
+                        facility=facility,
+                        sport=sport,
+                        target_date=current_date,
+                        timeout=timeout,
+                    )
+                    soup = BeautifulSoup(html, "html.parser")
+                    court_ids = _extract_court_ids(soup)
+                    blocked = _fetch_blocked_slots(
+                        scraper,
+                        facility=facility,
+                        start_date=current_date,
+                        court_ids=court_ids,
+                        timeout=timeout,
+                    )
+                    for slot in _parse_calendar_html(
+                        soup,
+                        fallback_date=current_date,
+                        timezone=timezone,
+                        blocked_slots=blocked,
+                        facility=facility,
+                        sport=sport,
+                    ):
+                        key = (slot.calendar_id, slot.court_id, slot.start)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        slots.append(slot)
+                except cloudscraper.exceptions.CloudflareChallengeError:
+                    # Cloudflare challenge failed - skip this facility/date/sport combination
+                    continue
+                except Exception:
+                    # For other errors (including 403), skip this facility/date/sport combination
+                    continue
+                # Small delay between requests to avoid rate limiting
+                time.sleep(0.5)
 
     return slots
 
@@ -160,7 +190,21 @@ def _fetch_calendar_html(
         "date": target_date.isoformat(),
         "type": "user",
     }
-    response = scraper.post(CALENDAR_ENDPOINT, data=data, timeout=timeout)
+    # Update headers for POST request to match form submission
+    # Merge with existing headers rather than replacing them
+    post_headers = dict(scraper.headers)
+    post_headers.update({
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Origin': 'https://www.eversports.at',
+        'Referer': facility.booking_url,
+        'X-Requested-With': 'XMLHttpRequest',
+    })
+    response = scraper.post(
+        CALENDAR_ENDPOINT,
+        data=data,
+        timeout=timeout,
+        headers=post_headers,
+    )
     response.raise_for_status()
     return response.text
 
