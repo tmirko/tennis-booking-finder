@@ -280,7 +280,7 @@ def main() -> None:
     
     # Show warning if Eversport is expected but not found (for tennis sport)
     if sport == "tennis" and "eversports" not in providers_found:
-        with st.expander("⚠️ Eversport courts unavailable", expanded=True):
+        with st.expander("⚠️ Eversport courts unavailable", expanded=False):
             st.warning(
                 "**Eversport courts are currently unavailable.**\n\n"
                 "This is likely due to Cloudflare's bot protection blocking requests from Streamlit Cloud's servers. "
