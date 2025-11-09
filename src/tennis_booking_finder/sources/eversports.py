@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -10,6 +11,8 @@ from bs4 import BeautifulSoup
 from zoneinfo import ZoneInfo
 
 from ..models import Slot
+
+logger = logging.getLogger(__name__)
 
 CALENDAR_ENDPOINT = "https://www.eversports.at/api/booking/calendar/update"
 
@@ -126,6 +129,7 @@ def fetch_slots(
     })
     slots: list[Slot] = []
     seen: set[tuple[str, str, datetime]] = set()
+    errors: list[str] = []
 
     for facility in FACILITIES:
         for current_date in target_dates:
@@ -160,14 +164,58 @@ def fetch_slots(
                             continue
                         seen.add(key)
                         slots.append(slot)
-                except cloudscraper.exceptions.CloudflareChallengeError:
-                    # Cloudflare challenge failed - skip this facility/date/sport combination
-                    continue
-                except Exception:
-                    # For other errors (including 403), skip this facility/date/sport combination
+                except cloudscraper.exceptions.CloudflareChallengeError as e:
+                    error_msg = f"Cloudflare challenge failed for {facility.label} ({facility.id}) on {current_date}: {e}"
+                    logger.warning(error_msg)
+                    errors.append(error_msg)
+                    # Retry once with a longer delay
+                    try:
+                        time.sleep(2)
+                        html = _fetch_calendar_html(
+                            scraper,
+                            facility=facility,
+                            sport=sport,
+                            target_date=current_date,
+                            timeout=timeout,
+                        )
+                        soup = BeautifulSoup(html, "html.parser")
+                        court_ids = _extract_court_ids(soup)
+                        blocked = _fetch_blocked_slots(
+                            scraper,
+                            facility=facility,
+                            start_date=current_date,
+                            court_ids=court_ids,
+                            timeout=timeout,
+                        )
+                        for slot in _parse_calendar_html(
+                            soup,
+                            fallback_date=current_date,
+                            timezone=timezone,
+                            blocked_slots=blocked,
+                            facility=facility,
+                            sport=sport,
+                        ):
+                            key = (slot.calendar_id, slot.court_id, slot.start)
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            slots.append(slot)
+                    except Exception as retry_e:
+                        logger.warning(f"Retry also failed for {facility.label}: {retry_e}")
+                        continue
+                except Exception as e:
+                    error_msg = f"Error fetching {facility.label} ({facility.id}) on {current_date}: {type(e).__name__}: {e}"
+                    logger.warning(error_msg, exc_info=True)
+                    errors.append(error_msg)
                     continue
                 # Small delay between requests to avoid rate limiting
                 time.sleep(0.5)
+
+    if errors and not slots:
+        # If we got errors and no slots, log a summary
+        logger.warning(f"Eversport fetch completed with {len(errors)} errors and {len(slots)} slots found")
+    elif errors:
+        logger.info(f"Eversport fetch completed with {len(errors)} errors but {len(slots)} slots found")
 
     return slots
 

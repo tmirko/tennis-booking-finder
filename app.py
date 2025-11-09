@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -15,6 +16,15 @@ sys.path.append(str(Path(__file__).resolve().parent.joinpath("src")))
 
 from tennis_booking_finder.settings import DEFAULT_TIMEOUT, DEFAULT_TIMEZONE, USER_AGENT
 from tennis_booking_finder.sources import collect_slots
+
+# Configure logging to show warnings and errors
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stderr)
+    ]
+)
 
 EVERSPORTS_LOCATIONS: dict[str, str] = {
     "12886": "sporthotel",
@@ -92,6 +102,9 @@ def load_slots(
 
     slots.sort(key=lambda slot: (slot.start, slot.court_label, slot.calendar_id, slot.court_id))
 
+    # Track which providers returned slots
+    providers_found = {slot.provider for slot in slots if slot.provider}
+    
     rows: list[dict[str, Any]] = []
     for slot in slots:
         start_label = slot.start.strftime("%Y-%m-%d %H:%M")
@@ -174,6 +187,7 @@ def load_slots(
         "generated_at": generated_at,
         "timezone": timezone_name,
         "pages": pages_to_fetch,
+        "providers_found": providers_found,
     }
 
 
@@ -262,6 +276,15 @@ def main() -> None:
         return
 
     rows = data["rows"]
+    providers_found = data.get("providers_found", set())
+    
+    # Show warning if Eversport is expected but not found (for tennis sport)
+    if sport == "tennis" and "eversports" not in providers_found:
+        st.warning(
+            "⚠️ Eversport courts are not currently available. This may be due to Cloudflare protection "
+            "blocking requests from the server. Check the server logs for details. Other providers are working normally."
+        )
+    
     surface_options = sorted({row["surface"] for row in rows})
     type_options = sorted({row["type"] for row in rows})
     location_options = sorted({row["location"] for row in rows})
